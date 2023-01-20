@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "LatLonDMS2Dec": {
+      "commandName": "Project",
+      "commandLineArgs": "TESTS"
+    }
+  }
+}

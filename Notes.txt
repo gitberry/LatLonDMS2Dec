@@ -1,0 +1,30 @@
+"This can be a simple utility - or with extra parameters become a very handy                                       \n" +
+"tool for outputing consistently formatted GEOGRAPHIC data.                                                        \n" +
+"                                                                                                                  \n" +
+"LatLonDMS2Dec Usage:                                                                                              \n" +
+"provide 3 parameters of Degrees, Minutes, Seconds - receive Degrees in Decimal format                             \n" +
+"provide more than 3 parameters and the following occurs                                                           \n" +
+"(designed for batch processing of apple EXIF extracted data)                                                      \n" +
+"example Apple EXIF extract: 53 deg 13' 24.91 N, 105 deg 43' 3.13 W                                                \n" +
+"4 parameters: the first, 3rd and 4th will be treated as degrees, minutes, seconds                                 \n" +
+" ie 53 deg 13' 24.91  => returns                                                                                  \n" +
+"5 parameters: the first, 3rd and 4th will be treated as D,M,S and the 5th discarded                               \n" +
+" ie 53 deg 13' 24.91 N  => returns                                                                                \n" +
+"6 parameters: the first will be echoed and the 2nd, 4th and 5th used for D,M,S and the 6th discarded              \n" +
+" ie IMG2345.JPG 53 deg 13' 24.91 N  => returns  IMG2345.JPG ??                                                    \n" +
+"7-10 parameters: the first will be echoed and the 2nd, 4th and 5th used for D,M,S and remaining discarded         \n" +
+" ie IMG2345.JPG 53 deg 13' 24.91 N, 105 deg 43' 3.13  => returns IMG2345.JPG ??                                   \n" +
+"11 parameters: the first will be echoed and parameters 2, 4, 5 and 7, 9, 10 used for DMS, DMS                     \n" +
+" ie IMG2345.JPG 53 deg 13' 24.91 N, 105 deg 43' 3.13 W => returns  IMG2345.JPG ??, ??                             \n" +
+"    NOTE - apple outputs in N,W order - so this option does that too...                                           \n" +
+"12-15 parameters: the first parameter is a switch and it's values are as follows:                                 \n" +
+" LonLat - will look in the 7th and 12th parameters if N, E or W put param 2 first then coordinates Lon first order\n" +
+"  and if 12 is W, add - sign to Lon value                                                                         \n" +
+"  and if parameters 13,14 or 15 exist - they will be passed into the output                                       \n" +
+" JSONLonLat does the same as above - but in more formal JSON format as follows:                                   \n" +
+"  {\"ID\":\"{Param2Value}\", \"Lat\":\"{LatValue}\", \"Lon\":\"{LatValue}\",                                      \n" +
+"   \"ImgURL\":\"{Param13Value}\",\"LinkURL\":\"{Param14Value},\"Desc\":\"{Param15Value}\"}                        \n" +
+"Note: if your formatting values - base64 encode 13, 14, 15 to avoid issues                                        \n" +
+"                                                                                                                  \n" 
+
+
