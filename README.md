@@ -30,7 +30,7 @@ gitberry@northberry.ca - the primary github handle for Clark Rensberry
 
 ## Version History
 
-Jan 30, 2022 - First submit is very bare bones - many TODO notes on where I'd like to improve it.
+V 1.0 - Jan 25, 2023 - tests out and using it for a particular project.
 
 ## License
 
