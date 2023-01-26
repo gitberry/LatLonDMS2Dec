@@ -1,0 +1,127 @@
+I had to get EXIF data from iPhone images and then output KML.  Below are the batch files used to automate the processing of the JPG files.
+
+Note: all the files were in the same folder - and the exe's called were in the folder or available in the path.  
+You'll need FART (google it - very cool Find-And-Replace-Tool), and Exif
+
+The Driver:
+====== BatchThem.Bat ========
+del %1
+del batchrun1.txt
+CALL exif2KML.BAT IMG_1747 JPG Batchrun1.txt
+CALL exif2KML.BAT IMG_1748 JPG Batchrun1.txt
+CALL exif2KML.BAT IMG_1749 JPG Batchrun1.txt
+CALL exif2KML.BAT IMG_1750 JPG Batchrun1.txt
+CALL exif2KML.BAT IMG_1751 JPG Batchrun1.txt
+CALL exif2KML.BAT IMG_1752 JPG Batchrun1.txt
+CALL exif2KML.BAT IMG_1753 JPG Batchrun1.txt
+CALL exif2KML.BAT IMG_1754 JPG Batchrun1.txt
+CALL exif2KML.BAT IMG_1755 JPG Batchrun1.txt
+CALL exif2KML.BAT IMG_1756 JPG Batchrun1.txt
+type kmlTemplateHeader1.txt >> %1
+type Batchrun1.txt >> %1
+type kmlTemplateFooter1.txt >> %1
+
+
+The next level process:
+===== exif2KML.bat =====
+@echo off
+CLS
+exiftool %1.JPG | find "GPS Position" > exif2KML_b.bat
+fart exif2KML_b.bat "GPS Position                    :" "LatLondms2dec.exe /LONLATOUTPUT /ECHOBEFOREP1P1P1%1P2P2P2 /ECHOAFTERP3P3P3^>P4P4P4" > NUL
+
+call exif2KML_b.bat > exif2KML_c.bat
+fart exif2KML_c.bat "P1P1P1" "CALL text2KML.BAT "
+FART exif2KML_c.bat "P2P2P2" " "
+FART exif2KML_c.bat "P3P3P3" " "
+FART exif2KML_c.bat "P4P4P4" " exif2KML_d.TXT"
+
+CALL exif2KML_c.BAT
+type exif2KML_d.txt >> %3
+: cleanup
+del exif2KML_b.bat
+del exif2KML_c.bat
+del exif2KML_d.txt
+del %1.TMP
+
+
+Inside that - we manipulate output to call yet another code to take exif text and insert into KML
+===== text2KML.bat =====
+@echo off
+@COPY KMLTEMPLATE.TXT %1.TMP  > NUL
+: wierd stuff with minus signs and FART !@#$!@#$%
+@FART %1.TMP "PPARAMETER1HUH" "^%2,%3" > NUL
+@FART %1.TMP "^-" "-" > NUL
+@FART %1.TMP "PPARAMETER2HUH" "%1" > NUL
+@FART %1.TMP "PPARAMETER3HUH" "%1" > NUL
+TYPE %1.TMP
+
+The template it uses:
+===== KMLTemplate.TXT =====
+      <Placemark>
+        <name>PPARAMETER2HUH</name>
+        <description><![CDATA[<img src="https://the-url-root-of-wherever-this-image-resides/PPARAMETER2HUH.JPG" height="200" width="auto" /><br><br>PPARAMETER3HUH]]></description>
+        <styleUrl>#icon-1899-DB4436</styleUrl>
+        <ExtendedData>
+          <Data name="gx_media_links">
+            <value>https://the-url-root-of-wherever-this-image-resides/PPARAMETER2HUH.JPG</value>
+          </Data>
+        </ExtendedData>
+        <Point>
+          <coordinates>
+            PPARAMETER1HUH
+          </coordinates>
+        </Point>
+      </Placemark>
+
+The header that the batch driver uses:
+===== KMLTemplateHeader1.txt =====
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>some-nice-name-goes-here</name>
+    <description>A-lengthy-description-goes-here</description>
+    <Style id="icon-1899-DB4436-normal">
+      <IconStyle>
+        <color>ff3644db</color>
+        <scale>1</scale>
+        <Icon>
+          <href>https://www.gstatic.com/mapspro/images/stock/503-wht-blank_maps.png</href>
+        </Icon>
+        <hotSpot x="32" xunits="pixels" y="64" yunits="insetPixels"/>
+      </IconStyle>
+      <LabelStyle>
+        <scale>0</scale>
+      </LabelStyle>
+    </Style>
+    <Style id="icon-1899-DB4436-highlight">
+      <IconStyle>
+        <color>ff3644db</color>
+        <scale>1</scale>
+        <Icon>
+          <href>https://www.gstatic.com/mapspro/images/stock/503-wht-blank_maps.png</href>
+        </Icon>
+        <hotSpot x="32" xunits="pixels" y="64" yunits="insetPixels"/>
+      </IconStyle>
+      <LabelStyle>
+        <scale>1</scale>
+      </LabelStyle>
+    </Style>
+    <StyleMap id="icon-1899-DB4436">
+      <Pair>
+        <key>normal</key>
+        <styleUrl>#icon-1899-DB4436-normal</styleUrl>
+      </Pair>
+      <Pair>
+        <key>highlight</key>
+        <styleUrl>#icon-1899-DB4436-highlight</styleUrl>
+      </Pair>
+    </StyleMap>
+    <Folder>
+	
+And the footer that the batch driver uses:
+===== KMLTemplatefooter1.txt =====
+
+    </Folder>
+  </Document>
+</kml>
+

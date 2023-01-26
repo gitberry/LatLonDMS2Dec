@@ -1,295 +1,142 @@
 ﻿using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Reflection;
 using System.Text.RegularExpressions;
 
 namespace ConsoleApp1
 {
     class Program
     {
+        // Switch memory
+        static bool showHelpAtEnd = false;
+        static bool showDebug = false;
+
+        // Format specifiers
+        const string OutputFormatTEXT = "/Text";
+        const string OutputFormatJSON = "/JSON";
+        public static string echoBefore = "";
+        public static string echoAfter = "";
+        public static bool LONLATOutput = false;
+        //todo add KML
+        static string DefaultOutputFormat = OutputFormatTEXT;
+        static string DesignatedOutputFormat = DefaultOutputFormat;
+        public const string outputFormatting = "0.000000"; // If 6 decimal places is good enough for google it'll be good enough for this...                                                           
+        public const string JSONCoordinateFormatString = "{{ \"type\": \"Point\", \"coordinates\": [ {0} ] }}"; // notes from https://macwright.com/2015/03/23/geojson-second-bite.html
+
+        // error constants
+        const string NotProperCoordinateResultString = "Not proper coordinate input.";
+        const double ErrorCoordOutput = 666;
+        static bool ErrorOccurred = false; //super kludgy...
+
+        public class SingleCoordinate
+        {
+            public double Lat = ErrorCoordOutput; // default to error
+            public double Lon = ErrorCoordOutput;
+            public string ExceptionMessage = "";
+        }
+
         static void Main(string[] args)
         {
-            Console.Write("Debug Start");
-            if (args.Length == 0) ShowHelp();
-            if (args.Length > 0)
+            if (showDebug) { Console.WriteLine("Debug Start"); }
+            var result = NotProperCoordinateResultString;
+
+            result = ProcessAllInput(GetRealData());
+
+            if (showDebug) { Console.WriteLine("===== DEBUG output start ====="); }
+            Console.WriteLine(result);
+            if (showDebug) { Console.WriteLine("===== DEBUG output end ====="); }
+
+            if (showDebug) { Console.WriteLine("Debug End"); }
+            if (showHelpAtEnd) { ShowHelp(); }
+        }
+
+        private static string GetRealData()
+        {
+            // we're getting the commandline info raw - because of quotes and such that don't populate the arrays quite right..
+            var theRawData = System.Environment.CommandLine; if (showDebug) { Console.WriteLine(theRawData); }
+            string xcodeBase = Assembly.GetExecutingAssembly().CodeBase; if (showDebug) { Console.WriteLine(xcodeBase); }
+            string theRealData = theRawData.Replace(xcodeBase.Replace("file:///", "").Replace("/", "\\"), ""); if (showDebug) { Console.WriteLine(theRealData); }
+            return theRealData;
+        }
+
+        private static string ProcessAllInput(string theRealData)
+        {
+            var result = NotProperCoordinateResultString;
+            //global variables that should be reset after each call (it multiple tests blow up without this althouuuugh - shouldn't matter for single command line calls - best to fix...
+            echoBefore = ""; echoAfter = ""; LONLATOutput = false; 
+
+            // massaging the data - making Apple image EXIF geocordinates fix our expected input
+            theRealData = massageInputs(theRealData); if (showDebug) { Console.WriteLine(theRealData); }
+
+            var theRealArgs = theRealData.Split(" "); if (theRealData == "") theRealArgs = new string[0];
+
+            if (theRealArgs.Length == 0) ShowHelp();
+            if (theRealArgs.Length > 0)
             {
-                if (args[0] == "TESTS") RunTests();
-                if (args[0] == "/H") ShowHelp();
-
-                if (args.Length > 3) Console.WriteLine($"[{DMS2DecimalEXIFfromApple(args)}]");
-                else ShowHelp();
-                }
-            Console.Write("Debug End");
-
-            //Console.WriteLine($"[{LatLonUtils.DMS2Decimal(args[0])}]");
-            //Console.WriteLine($"[{LatLonUtils.DMS2DecimalEXIFfromApple(args[0])}]");
-            //Console.WriteLine($"[{DMS2DecimalEXIFfromApple(args[0])}]");
-
-        }
-
-        private static void ShowHelp()
-        {
-            Console.WriteLine(
-                "This can be a simple utility - or with extra parameters become a very handy                                       \n" +
-                "tool for outputing consistently formatted GEOGRAPHIC data.                                                        \n" +
-                "                                                                                                                  \n" +
-                "LatLonDMS2Dec Usage:                                                                                              \n" +
-                "provide 3 parameters of Degrees, Minutes, Seconds - receive Degrees in Decimal format                             \n" +
-                "provide more than 3 parameters and the following occurs                                                           \n" +
-                "(designed for batch processing of apple EXIF extracted data)                                                      \n" +
-                "example Apple EXIF extract: 53 deg 13' 24.91 N, 105 deg 43' 3.13 W                                                \n" +
-                "4 parameters: the first, 3rd and 4th will be treated as degrees, minutes, seconds                                 \n" +
-                " ie 53 deg 13' 24.91  => returns                                                                                  \n" +
-                "5 parameters: the first, 3rd and 4th will be treated as D,M,S and the 5th discarded                               \n" +
-                " ie 53 deg 13' 24.91 N  => returns                                                                                \n" +
-                "6 parameters: the first will be echoed and the 2nd, 4th and 5th used for D,M,S and the 6th discarded              \n" +
-                " ie IMG2345.JPG 53 deg 13' 24.91 N  => returns  IMG2345.JPG ??                                                    \n" +
-                "7-10 parameters: the first will be echoed and the 2nd, 4th and 5th used for D,M,S and remaining discarded         \n" +
-                " ie IMG2345.JPG 53 deg 13' 24.91 N, 105 deg 43' 3.13  => returns IMG2345.JPG ??                                   \n" +
-                "11 parameters: the first will be echoed and parameters 2, 4, 5 and 7, 9, 10 used for DMS, DMS                     \n" +
-                " ie IMG2345.JPG 53 deg 13' 24.91 N, 105 deg 43' 3.13 W => returns  IMG2345.JPG ??, ??                             \n" +
-                "    NOTE - apple outputs in N,W order - so this option does that too...                                           \n" +
-                "12-15 parameters: the first parameter is a switch and it's values are as follows:                                 \n" +
-                " LonLat - will look in the 7th and 12th parameters if N, E or W put param 2 first then coordinates Lon first order\n" +
-                "  and if 12 is W, add - sign to Lon value                                                                         \n" +
-                "  and if parameters 13,14 or 15 exist - they will be passed into the output                                       \n" +
-                " JSONLonLat does the same as above - but in more formal JSON format as follows:                                   \n" +
-                "  {\"ID\":\"{Param2Value}\", \"Lat\":\"{LatValue}\", \"Lon\":\"{LatValue}\",                                      \n" +
-                "   \"ImgURL\":\"{Param13Value}\",\"LinkURL\":\"{Param14Value},\"Desc\":\"{Param15Value}\"}                        \n" +
-                "Note: if you are formatting values - base64 encode 13, 14, 15 to avoid issues                                        \n" +
-                "");
-            Environment.Exit(1);
-        }
-
-        private static void RunTests()
-        {
-            Console.WriteLine("Starting Tests\n");
-            int ExitValue = 0;
-            //todo: add a variety of test values from around the world Mate! 
-            ExitValue += TestHarness("44 30 45.0", "44.512503"); // 3 params (some cool place 44°30'45.0"N 110°23'00.1"W ==> 44.512503, -110.383361 )
-            ExitValue += TestHarness("110 23 00.1", "-110.383361"); // 3 params (some cool place 44°30'45.0"N 110°23'00.1"W ==> 44.512503, -110.383361 )
-
-            //ExitValue += TestHarnessA("53 deg 13' 24.91 N, 105 deg 43' 3.13 W "); // 3 parameters - plain jane OK
-
-            //ExitValue += TestHarnessA("53 deg 13' 24.91 N, 105 deg 43' 3.13 W "); // 4 parameters
-
-
-            //ExitValue += TestHarnessA("53 deg 13' 24.91 N, 105 deg 43' 3.13 W "); //.Trim().Split(" "));
-            //ExitValue += TestHarnessA("53 deg 13' 25.13 N, 105 deg 43' 3.85 W "); //.Trim().Split(" "));
-            //ExitValue += TestHarnessA("53 deg 13' 24.06 N, 105 deg 43' 6.73 W "); //.Trim().Split(" "));
-            //ExitValue += TestHarnessA("53 deg 13' 21.95 N, 105 deg 43' 6.35 W "); //.Trim().Split(" "));
-            //ExitValue += TestHarnessA("53 deg 13' 21.23 N, 105 deg 43' 8.43 W "); //.Trim().Split(" "));
-            //ExitValue += TestHarnessA("53 deg 13' 21.63 N, 105 deg 43' 11.89 W"); //.Trim().Split(" "));
-            //ExitValue += TestHarnessA("53 deg 13' 23.53 N, 105 deg 43' 14.31 W"); //.Trim().Split(" "));
-            //ExitValue += TestHarnessA("53 deg 13' 22.32 N, 105 deg 43' 16.48 W"); //.Trim().Split(" "));
-            //ExitValue += TestHarnessA("53 deg 13' 20.19 N, 105 deg 43' 18.73 W"); //.Trim().Split(" "));
-            //ExitValue += TestHarnessA("53 deg 13' 18.94 N, 105 deg 43' 22.14 W"); //.Trim().Split(" "));
-            //ExitValue += TestHarnessA("53 deg 13' 18.58 N, 105 deg 43' 25.49 W"); //.Trim().Split(" "));
-            //ExitValue += TestHarnessA("53 deg 13' 18.64 N, 105 deg 43' 25.49 W"); //.Trim().Split(" "));
-            //ExitValue += TestHarnessA("53 deg 13' 19.26 N, 105 deg 43' 29.09 W"); //.Trim().Split(" "));
-            //ExitValue += TestHarnessA("53 deg 13' 17.95 N, 105 deg 43' 25.85 W"); //.Trim().Split(" "));
-            //ExitValue += TestHarnessA("53 deg 13' 18.09 N, 105 deg 43' 22.17 W"); //.Trim().Split(" "));
-            //ExitValue += TestHarnessA("53 deg 13' 15.96 N, 105 deg 43' 23.68 W"); //.Trim().Split(" "));
-            //ExitValue += TestHarnessA("53 deg 13' 14.54 N, 105 deg 43' 26.15 W"); //.Trim().Split(" "));
-            //ExitValue += TestHarnessA("53 deg 13' 14.54 N, 105 deg 43' 26.15 W"); //.Trim().Split(" "));
-            //ExitValue += TestHarnessA("53 deg 13' 13.68 N, 105 deg 43' 23.49 W"); //.Trim().Split(" "));
-            //ExitValue += TestHarnessA("53 deg 13' 14.19 N, 105 deg 43' 19.89 W"); //.Trim().Split(" "));
-            //ExitValue += TestHarnessA("53 deg 13' 14.37 N, 105 deg 43' 16.54 W"); //.Trim().Split(" "));
-            //ExitValue += TestHarnessA("53 deg 13' 14.41 N, 105 deg 43' 12.69 W"); //.Trim().Split(" "));
-            //ExitValue += TestHarnessA("53 deg 13' 14.38 N, 105 deg 43' 9.09 W "); //.Trim().Split(" "));
-            //ExitValue += TestHarnessA("53 deg 13' 14.56 N, 105 deg 43' 5.41 W "); //.Trim().Split(" "));
-            //ExitValue += TestHarnessA("53 deg 13' 13.25 N, 105 deg 43' 3.08 W "); //.Trim().Split(" "));
-            //ExitValue += TestHarnessA("53 deg 13' 13.23 N, 105 deg 43' 3.16 W "); //.Trim().Split(" "));
-            //ExitValue += TestHarnessA("53 deg 13' 11.69 N, 105 deg 43' 2.09 W "); //.Trim().Split(" "));
-            //ExitValue += TestHarnessA("53 deg 13' 11.00 N, 105 deg 42' 59.04 W"); //.Trim().Split(" "));
-            //ExitValue += TestHarnessA("53 deg 13' 11.04 N, 105 deg 42' 59.01 W"); //.Trim().Split(" "));
-            //ExitValue += TestHarnessA("53 deg 13' 10.86 N, 105 deg 42' 55.50 W"); //.Trim().Split(" "));
-            //ExitValue += TestHarnessA("53 deg 13' 10.66 N, 105 deg 42' 51.87 W"); //.Trim().Split(" "));
-            //ExitValue += TestHarnessA("53 deg 13' 10.78 N, 105 deg 42' 45.17 W"); //.Trim().Split(" "));
-            //ExitValue += TestHarnessA("53 deg 13' 10.77 N, 105 deg 42' 45.14 W"); //.Trim().Split(" "));
-            //ExitValue += TestHarnessA("53 deg 13' 14.93 N, 105 deg 42' 46.30 W"); //.Trim().Split(" "));
-            //ExitValue += TestHarnessA("53 deg 13' 14.93 N, 105 deg 42' 46.41 W"); //.Trim().Split(" "));
-            //ExitValue += TestHarnessA("53 deg 13' 16.91 N, 105 deg 42' 48.91 W"); //.Trim().Split(" "));
-            //ExitValue += TestHarnessA("53 deg 13' 18.58 N, 105 deg 42' 50.94 W"); //.Trim().Split(" "));
-            //ExitValue += TestHarnessA("53 deg 13' 18.64 N, 105 deg 42' 54.76 W"); //.Trim().Split(" "));
-            //ExitValue += TestHarnessA("53 deg 13' 20.55 N, 105 deg 42' 56.49 W"); //.Trim().Split(" "));
-            //ExitValue += TestHarnessA("53 deg 13' 21.67 N, 105 deg 42' 56.79 W"); //.Trim().Split(" "));
-            //ExitValue += TestHarnessA("53 deg 13' 22.13 N, 105 deg 43' 20.11 W"); //.Trim().Split(" "));
-            //ExitValue += TestHarnessA("53 deg 13' 22.13 N, 105 deg 43' 20.11 W"); //.Trim().Split(" "));
-            //ExitValue += TestHarnessA("53 deg 13' 23.90 N, 105 deg 43' 22.33 W"); //.Trim().Split(" "));
-            //ExitValue += TestHarnessA("53 deg 13' 23.88 N, 105 deg 43' 22.28 W"); //.Trim().Split(" "));
-            //ExitValue += TestHarnessA("53 deg 13' 23.47 N, 105 deg 43' 27.14 W"); //.Trim().Split(" "));
-            //ExitValue += TestHarnessA("53 deg 13' 20.45 N, 105 deg 43' 26.45 W"); //.Trim().Split(" "));
-            //ExitValue += TestHarnessA("53 deg 13' 20.51 N, 105 deg 43' 26.51 W"); //.Trim().Split(" "));
-            //ExitValue += TestHarnessA("53 deg 13' 20.64 N, 105 deg 43' 22.77 W"); //.Trim().Split(" "));
-            //ExitValue += TestHarnessA("53 deg 13' 21.78 N, 105 deg 43' 20.35 W"); //.Trim().Split(" "));
-            Console.WriteLine("Finished Tests.");
-            Environment.Exit(ExitValue);
-        }
-
-        // Test Harness has only 1 possibility - 3 params are a valid coordinate or not...
-        private static int TestHarness(string givenString, string expectedResult)
-        {
-            Console.Write($"TestHarness ==>> {givenString} ==>>");
-            var input = givenString.Trim().Split(" ");
-            var result = DMS2Decimal(input[0], input[1], input[2]);
-            Console.WriteLine($"{expectedResult} == {result}");
-            return result == expectedResult ? 1 : 0; // TestHarnessA2(givenString.Trim().Split(" "));
-
-        }
-
-
-        // A series test harnesses are for Apple formatted EXIF
-        private static int TestHarnessA(string givenString)
-        {
-            Console.Write($"TestHarnessA ==>> {givenString} ==>>");
-            return TestHarnessA2(givenString.Trim().Split(" "));
-        }
-
-        private static int TestHarnessA2(string[] args)
-        {
-            var cnt = 0;
-            foreach (string xstring in args)
-            {
-                cnt += 1;
-                Console.Write($"{cnt}|{xstring};");
-            }
-            Console.WriteLine($"  Count:{cnt}");
-            return 0;
-        }
-
-        //    }
-
-        //public class LatLonUtils
-
-        //{
-        //original from here: https://stackoverflow.com/questions/3249700/convert-degrees-minutes-seconds-to-decimal-coordinates
-        //static Regex reg = new Regex(@"^((?<D>\d{1,2}(\.\d+)?)(?<W>[SN])|(?<D>\d{2})(?<M>\d{2}(\.\d+)?)(?<W>[SN])|(?<D>\d{2})(?<M>\d{2})(?<S>\d{2}(\.\d+)?)(?<W>[SN])|(?<D>\d{1,3}(\.\d+)?)(?<W>[WE])|(?<D>\d{3})(?<M>\d{2}(\.\d+)?)(?<W>[WE])|(?<D>\d{3})(?<M>\d{2})(?<S>\d{2}(\.\d+)?)(?<W>[WE]))$");
-
-        //public static double DMS2Decimal(string dms)
-        //{
-        //    double result = double.NaN;
-
-        //    var match = reg.Match(dms);
-
-        //    if (match.Success)
-        //    {
-        //        var degrees = double.Parse("0" + match.Groups["D"]);
-        //        var minutes = double.Parse("0" + match.Groups["M"]);
-        //        var seconds = double.Parse("0" + match.Groups["S"]);
-        //        var direction = match.Groups["W"].ToString();
-        //        var dec = (Math.Abs(degrees) + minutes / 60d + seconds / 3600d) * (direction == "S" || direction == "W" ? -1 : 1);
-        //        var absDec = Math.Abs(dec);
-
-        //        if ((((direction == "W" || direction == "E") && degrees <= 180 & absDec <= 180) || (degrees <= 90 && absDec <= 90)) && minutes < 60 && seconds < 60)
-        //        {
-        //            result = dec;
-        //        }
-
-        //    }
-
-        //    return result;
-        //}
-
-        static string NotAnAppleEXIFCoordinateStringResultValue = "Not an Apple EXIF coordinate string.";
-
-        public static string DMS2DecimalEXIFfromApple(string[] DMS)
-        {
-            //original from here: https://stackoverflow.com/questions/3249700/convert-degrees-minutes-seconds-to-decimal-coordinates
-            // modified to match Apple's EXIF format
-            // a feature of Apple's format is that it has a double quote for seconds - SO... what should be 5 parameters ends up being 4...
-            string result = NotAnAppleEXIFCoordinateStringResultValue; //"Not an Apple EXIF coordinate string.";  //string.Empty;
-
-            //var givenArray = dms.Split(' ');
-            result += $"length={DMS.Length}for[{string.Join("|",DMS)}]";
-            if (DMS.Length >= 4)
-            {
-                result = "we have more than 4";
-                // if " didn't mess things up:
-                //if (Righty(DMS[2], 1) == "'" && Righty(DMS[3], 1) == "\"" && DMS[1].ToLower() == "deg" && (DMS[4].ToUpper() == "N" || DMS[4].ToUpper() == "W" || DMS[4].ToUpper() == "E"))
-                if (Righty(DMS[2], 1) == "'" && DMS[1].ToLower() == "deg" && (Righty(DMS[3],1).ToUpper() == "N" || Righty(DMS[3], 1).ToUpper() == "W" || Righty(DMS[3], 1).ToUpper() == "E"))
+                if (theRealArgs[0] == "/H") ShowHelp(); //quick end..
+                // scan through arguments - pick out the switches and act accordingly
+                List<string> actualArgs = new List<string>();
+                foreach (string arg in theRealArgs)
                 {
-                    result = DMS2Decimal(DMS[0], SanitizeAppleM(DMS[2]), SanitizeAppleS(DMS[3]), ExtractAppleDirection(DMS[3]));
-                    ////return $"do something with {DMS}";
-                    //var degrees = double.Parse("0" + DMS[0]);
-                    //var minutes = double.Parse("0" + DMS[2].Replace("'", "")); ;
-                    //var seconds = double.Parse("0" + DMS[3].Substring(0, 5));
-                    //var direction = Righty(DMS[3], 1).ToUpper();
-                    //var dec = (Math.Abs(degrees) + minutes / 60d + seconds / 3600d) * (direction == "S" || direction == "W" ? -1 : 1);
-                    //var absDec = Math.Abs(dec);
-                    //
-                    //    if ((((direction == "W" || direction == "E") && degrees <= 180 & absDec <= 180) || (degrees <= 90 && absDec <= 90)) && minutes < 60 && seconds < 60)
-                    //    {
-                    //        result = $"{dec}"; // all is good - let's have it -otherwise it's formatted wonky...
-                    //    }
+                    var thisArg = arg.ToUpper().Replace("\"", ""); // feels cludgy??? breaking single purpose rule somehow?
+                    // some special cases
+                    if (thisArg.Contains("/ECHOBEFORE")) { echoBefore = thisArg.Replace("/ECHOBEFORE", ""); }
+                    else
+                        if (thisArg.Contains("/ECHOAFTER")) { echoAfter = thisArg.Replace("/ECHOAFTER", ""); }
+                    else
+                    {
+                        switch (thisArg)
+                        {
+                            case OutputFormatTEXT: DesignatedOutputFormat = OutputFormatTEXT; break;
+                            case OutputFormatJSON: DesignatedOutputFormat = OutputFormatJSON; break;
+                            case "/LONLATOUTPUT": LONLATOutput = true; break;
+                            case "/DEBUG": showDebug = true; Console.WriteLine("DEBUG ON"); break;
+                            case "/TESTS": RunTests(); break; // order sensitive - can put debug on prior - but not after...
+                            case "/H": showHelpAtEnd = true; break;
+                            case "/HELP": showHelpAtEnd = true; break;
+                            case "/HLP": showHelpAtEnd = true; break;
+                            default:
+                                actualArgs.Add(thisArg); // if it didn't get caught as a switch - then we use it as an argument
+                                break;
+                        }
+                    }
                 }
+                result = ProcessCoordinateInput(actualArgs);
+                if (ErrorOccurred) { result += $" Using Input: [{theRealData}]"; }
             }
-            //var match = reg.Match(dms);
-
-            //if (match.Success)
-            //{
-            //    var degrees = double.Parse("0" + match.Groups["D"]);
-            //    var minutes = double.Parse("0" + match.Groups["M"]);
-            //    var seconds = double.Parse("0" + match.Groups["S"]);
-            //    var direction = match.Groups["W"].ToString();
-            //    var dec = (Math.Abs(degrees) + minutes / 60d + seconds / 3600d) * (direction == "S" || direction == "W" ? -1 : 1);
-            //    var absDec = Math.Abs(dec);
-
-            //    if ((((direction == "W" || direction == "E") && degrees <= 180 & absDec <= 180) || (degrees <= 90 && absDec <= 90)) && minutes < 60 && seconds < 60)
-            //    {
-            //        result = dec;
-            //    }
-
-            //}
-
             return result;
         }
 
-        public static string SanitizeAppleM(string M)
+        private static string ProcessCoordinateInput(List<string> actualArgs)
         {
-            return M.Replace("'", "");
-        }
-
-        public static string SanitizeAppleS(string S)
-        {
-            return S.Substring(0, Math.Min(S.Length, 5));
-        }
-
-        public static string ExtractAppleDirection(string S)
-        {
-            //if (S.Length < 3) return "W"; 
-            //else
-            //{
-            //    return Righty(S, 1).ToUpper();
-            //}
-            return Righty(S, 1).ToUpper();  // ASSUME - makes an ASS out of U and ME!!!
-        }
-
-        static string NotProperCoordinateResultString = "Not proper coordinate information.";
-
-        public static string DMS2Decimal(string D, string M, string S)
-        {
-            // pure math - no error checking for Direction
-            string result = NotProperCoordinateResultString; // "Not proper coordinate information.";  //string.Empty;           
-            var degrees = double.Parse("0" + D);
-            var minutes = double.Parse("0" + M);
-            var seconds = double.Parse("0" + S);
-            //direction = direction.ToUpper(); // just in case - still making assumptions about the value uggg...
-
-            var dec = (Math.Abs(degrees) + minutes / 60d + seconds / 3600d); // * (direction == "S" || direction == "W" ? -1 : 1);
-            var absDec = Math.Abs(dec);
-
-            // basic error checking - won't really know if you're a Lat or Lon - 
-            if ((( degrees <= 180 & absDec <= 180) || (degrees <= 90 && absDec <= 90)) && minutes < 60 && seconds < 60)
+            var result = NotProperCoordinateResultString;
+            switch (actualArgs.Count)
             {
-                result = $"{dec}"; // all is good - let's have it -otherwise it's wonky input...
-                //todo:  line up testing harnes so that 3 works?? or not perhaps?
+                case 0:
+                case 1:
+                case 2:
+                case 3:
+                    break; //errors and default indicates this
+                case 4: // our plain solution
+                    result = OneValueOutput(DMS2Decimal(actualArgs[0], actualArgs[1], actualArgs[2], actualArgs[3]));
+                    break;
+                default:
+                    // input from apple EXIF metadata
+                    result = CoordOutput(DMS2Decimal(actualArgs));
+                    break;
             }
-
+            ErrorOccurred = (ErrorOccurred || (result == NotProperCoordinateResultString));
             return result;
         }
-        public static string DMS2Decimal(string D, string M, string S, string direction)
+
+        public static double DMS2Decimal(string D, string M, string S, string direction)
         {
-            //original from here: https://stackoverflow.com/questions/3249700/convert-degrees-minutes-seconds-to-decimal-coordinates
-            string result = NotProperCoordinateResultString; // "Not proper coordinate information.";  //string.Empty;           
+            //a much more flexible input scheme from original here: https://stackoverflow.com/questions/3249700/convert-degrees-minutes-seconds-to-decimal-coordinates
+            // I actually wanted to restrict input format - so I did the following
+            // - but I LOVE the groups feature of the regex of the original by Alobidat (although I have never coded and tested their solution I loved the simple concept when reading the code!)
+            double result = ErrorCoordOutput;
 
             var degrees = double.Parse("0" + D);
             var minutes = double.Parse("0" + M);
@@ -300,24 +147,181 @@ namespace ConsoleApp1
             var absDec = Math.Abs(dec);
 
             if ((((direction == "W" || direction == "E") && degrees <= 180 & absDec <= 180) || (degrees <= 90 && absDec <= 90)) && minutes < 60 && seconds < 60)
-            {
-                result = $"{dec}"; // all is good - let's have it -otherwise it's wonky input...
-                //todo:  line up testing harnes so that 3 works?? or not perhaps?
+            {                
+                result = dec; // happy path!
             }
-                
+
             return result;
         }
 
-
-
-        public static string Righty(string value, int length) // WTF MS! - not a standard Right string function in c# after all these years???
+        public static SingleCoordinate DMS2Decimal(string[] args)
         {
-            // dutifully stolen from here: https://stackoverflow.com/questions/16782786/right-function-in-c
-            if (String.IsNullOrEmpty(value)) return string.Empty;
+            return DMS2Decimal(args.ToList());
+        }
 
+        public static SingleCoordinate DMS2Decimal(List<string> args)
+        {
+            var result = new SingleCoordinate();
+            try
+            {
+                result.Lat = DMS2Decimal(args[0], args[1], args[2], args[3]);
+                result.Lon = DMS2Decimal(args[4], args[5], args[6], args[7]);
+            }
+            catch (Exception ex) { result.ExceptionMessage = ex.Message; } // gentle fail - _should_ have 666 in one of the values..
+            if (result.ExceptionMessage != "") { Console.WriteLine($"Error:[{result.ExceptionMessage}]"); }
+            return result;
+        }
+
+        private static string OneValueOutput(double givenSingleValue)
+        {
+            string result = NotProperCoordinateResultString;
+            if (givenSingleValue != ErrorCoordOutput)
+            {
+                switch (DesignatedOutputFormat)
+                {
+                    case OutputFormatJSON:
+                        // it's not possible to make any JSON out of a single coordinate
+                        // SO.... just to test output we fake it with a 0 for other
+                        // alway assume Longitude 
+                        result = SingleCoordinateJSON(givenSingleValue, 0);
+                        break;
+                    default: //
+                        result = givenSingleValue.ToString(outputFormatting);
+                        break;
+                }
+            }
+            return result;
+        }
+
+        private static string CoordOutput(SingleCoordinate givenCoordinate)
+        {
+            string result = NotProperCoordinateResultString;
+            if (!(givenCoordinate.Lat == ErrorCoordOutput || givenCoordinate.Lon == ErrorCoordOutput))
+            {
+                switch (DesignatedOutputFormat)
+                {
+                    case OutputFormatJSON:
+                        result = SingleCoordinateJSON(givenCoordinate);
+                        break;
+                    default: 
+                        if (LONLATOutput)
+                        {
+                            result = $"{echoBefore}{TwoDoubleFormattedOutput(givenCoordinate.Lon, givenCoordinate.Lat)}{echoAfter}"; // NOTE: Lon,Lat as per spec!!
+                        }
+                        else
+                        {
+                            result = $"{echoBefore}{TwoDoubleFormattedOutput(givenCoordinate.Lat, givenCoordinate.Lon)}{echoAfter}"; // NOTE: Lon,Lat as per spec!!
+                        }
+                        break;
+                }
+            }
+            return result;
+        }
+
+        private static string SingleCoordinateJSON(SingleCoordinate givenCoordinate)
+        {
+            return SingleCoordinateJSON(givenCoordinate.Lat, givenCoordinate.Lon);
+        }
+
+        private static string SingleCoordinateJSON(double givenLat, double givenLon)
+        {
+            return string.Format(JSONCoordinateFormatString, TwoDoubleFormattedOutput(givenLon, givenLat)); // NOTE: Lon,Lat as per spec!!
+        }
+
+        private static string TwoDoubleFormattedOutput(double givenDouble1, double givenDouble2) // so we can flip our Lat's and Lon's according to specs and keep decimal formatting going through 1 place - HERE!!
+        {
+            return $"{givenDouble1.ToString(outputFormatting)},{givenDouble2.ToString(outputFormatting)}";  // no spaces is important automation feature..
+        }
+
+        private static void ShowHelp()
+        {
+            Console.WriteLine(
+                "This can be a simple utility - or with extra parameters become a very handy                                       \n" +
+                "tool for outputing consistently formatted GEOGRAPHIC data.                                                        \n" +
+                "                                                                                                                  \n" +
+                "LatLonDMS2Dec Usage:                                                                                              \n" +
+                "Basic: 																										   \n" +
+                "4 parameters: degrees, minutes, seconds, direction                                 							   \n" +
+                " ie 44 30 45.0 N   ==>   44.512500																				   \n" +
+                "    110 23 00.1 W  ==> -110.383361																				   \n" +
+                "																												   \n" +
+                "8 parameters: degrees, minutes, seconds, N/S degrees, minutes, seconds, E/W									   \n" +
+                "ie 44 30 45.0 N 110 23 00.1 W  ==> 44.512500, -110.383361														   \n" +
+                " 																												   \n" +
+                "(designed for batch processing of apple EXIF extracted data)                                                      \n" +
+                "example Apple EXIF extract: 53 deg 13' 24.91\" N, 105 deg 43' 3.13\" W 											   \n" +
+                "NOTE: quotes and extras in the EXIF make the arguments in the app a little wonky so the app strips out the cruft  \n" +
+                "																												   \n" +
+                "Extra switches																									   \n" +
+                "/H = puts a help at the end of the app run (if it's 1st parameter- thats all it will do)						   \n" +
+                "/DEBUG = puts in debug and shows a lot of stuff																   \n" +
+                "/TEST = will run a number of tests and quit																	   \n" +
+                "/JSON - will output in GeoJSON																					   \n" +
+                "/LONLATOUTPUT - will put the coordinates in Longitude then Latitude order (KML likes that)                        \n" +
+                "* it is order sensitive, so if you put the /H after /TEST it won't show help									   \n" +
+                "  similarlyl if you specify /JSON after /TEST it won't put the output of tests in JSON							   \n" +
+                "   (which is as it should be - you aren't *usually* testing accuracy and JSON formatting)						   \n" +
+                "Special Switches                                                                                                  \n" +
+                "/ECHOBEFORE[WHATEVER] - WILL PUT THAT [WHATEVER] BEFORE YOUR TEXT OUTPUT                                          \n" +
+                "/ECHOAFTER[WHATEVER] - WILL PUT THAT [WHATEVER] AFTER YOU TEXT OUTPUT                                             \n" +
+                "(for hardcore batch functionality -hint use for creating batch files etc..)                                       \n" +
+                "");
+            Environment.Exit(1);
+        }
+
+        private static string massageInputs(string givenString)
+        {
+            //to match our input needs - Apple EXIF specific formatting "massaged" from this:
+            //53 deg 13' 23.47" N, 105 deg 43' 27.14" W
+            // to this:
+            //53 13 23.47 N, 105 43 27.14 W
+            var result = givenString.Replace("\"", "").ToUpper().Replace("DEG", "").Replace("'", "").Replace(",", "").Trim();
+            var prevResult = "";
+            while (result != prevResult)
+            {
+                prevResult = result;
+                result = result.Replace("  ", " ");
+            }
+            return result;
+        }
+
+        public static string RIGHT(string value, int length) // WTF MS! - not a standard Right string function in c# after all these years???
+        {
+            // dutifully borrowed from here: https://stackoverflow.com/questions/16782786/right-function-in-c
+            if (String.IsNullOrEmpty(value)) return string.Empty;
             return value.Length <= length ? value : value.Substring(value.Length - length);
         }
-        //    }
+
+        #region Testing // to avoid uncessary testing infrastructure for a simple little app...
+
+        public static void RunTests()
+        {
+            (int, int) result = (0, 0);
+            Console.WriteLine("Starting Tests\n");
+            //todo: add a variety of test values from around the world Mate! 
+            result.Item1 += 1; result.Item2 += TestHarness("44 30 45.0 N", "44.512500");   // 4 params (some cool place 44°30'45.0"N 110°23'00.1"W ==> 44.512503, -110.383361 )
+            result.Item1 += 1; result.Item2 += TestHarness("110 23 00.1 W", "-110.383361"); // 4 params (some cool place 44°30'45.0"N 110°23'00.1"W ==> 44.512503, -110.383361 )
+            // it gotta ask myself - why 4 params?  Does this serve a useful function after code functional?  I think not - likely to excise to make simpler
+            result.Item1 += 1; result.Item2 += TestHarness("53 deg 13' 24.91\" N, 105 deg 43' 3.13\" W", "53.223586,-105.717536");  //ground truth'd in Little Red River Park..
+            result.Item1 += 1; result.Item2 += TestHarness("53 deg 13' 23.47\" N, 105 deg 43' 27.14\" W", "53.223186,-105.724206"); //ground truth'd in Little Red River Park..                        
+            result.Item1 += 1; result.Item2 += TestHarness("53 deg 13' 23.47\" N, 105 deg 43' 27.14\" W /LONLATOUTPUT", "-105.724206,53.223186"); ///LONLATOUTPUT test
+            result.Item1 += 1; result.Item2 += TestHarness("53 deg 13' 23.47\" N, 105 deg 43' 27.14\" /ECHOBEFOREFFOORR W", "FFOORR53.223186,-105.724206"); //ECHOBEFOR test            
+            result.Item1 += 1; result.Item2 += TestHarness("53 deg 13' 23.47\" N, 105 deg 43' 27.14\" /ECHOAFTERAAFFTTEERR W", "53.223186,-105.724206AAFFTTEERR");//ECHOAFTER test            
+            result.Item1 += 1; result.Item2 += TestHarness("53 deg 13' 23.47\" N, 105 deg 43' 27.14\" W /ECHOBEFOREFFOORR /ECHOAFTERAAFFTTEERR", "FFOORR53.223186,-105.724206AAFFTTEERR"); //ECHOBEFOR and ECHOAFTER test
+
+            Console.WriteLine($"Finished Tests. Result: {result.Item2} out of {result.Item1} passed.");
+            Environment.Exit(result.Item1 == result.Item2 ? 1 : 0);
+        }
+
+        private static int TestHarness(string givenString, string expectedResult)
+        {
+            Console.Write($"TestHarness ==>> {givenString} ==>>");
+            var result = ProcessAllInput(givenString); // not true recursion but...
+            Console.WriteLine($" [{(result == expectedResult ? "SUCCESS" : "FAIL")} : {expectedResult} == {result}]");
+            return result == expectedResult ? 1 : 0;
+        }
+
+        #endregion
 
     }
 }
