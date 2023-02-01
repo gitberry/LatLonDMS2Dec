@@ -17,6 +17,8 @@ EXIFextraction tool and insert it into something else - say a KML file
 that you import into a mapping utility - say google maps. All of this
 is demonstrated in AutomationNotes.txt in the solution.
 
+Alternatively - I could have exported everything to a database - then coded something to export geoJSON or whatever.. this was just one path to an end result.  The method really depends on how much time you want to spend on it - AND - what the nature of the end result is...
+
 
 ### Dependencies
 
