@@ -7,6 +7,7 @@ The Driver:
 ====== BatchThem.Bat ========
 del %1
 del batchrun1.txt
+: todo - make this just grab each jpg in the folder - totally doable - but I had an order fetish for this one...
 CALL exif2KML.BAT IMG_1747 JPG Batchrun1.txt
 CALL exif2KML.BAT IMG_1748 JPG Batchrun1.txt
 CALL exif2KML.BAT IMG_1749 JPG Batchrun1.txt
